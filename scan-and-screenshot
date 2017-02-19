@@ -1,0 +1,388 @@
+#!/bin/bash
+#set -x
+clear
+#-------------------------------------------------------------------------
+# Hunter script - map the http services                  Keld Norman, 2017
+#-------------------------------------------------------------------------
+# Original script: Map internal net port 80, 443, 8080 services    v01.00
+#
+# apt-get install ratpoison xvfb masscan imagemaigck golang morgrify iptables
+#  export GOPATH=/home/[YOUR USER]/go && go get github.com/adnanh/webscrot
+#
+# Alter the WEBSCROT variable below to your user directory
+#-------------------------------------------------------------------------
+# Banner (A Must for 1337'ishness): 
+cat << "EOF"
+
+           ______________________________________
+  ________|                                      |_______
+  \       |     Masscan and Screenshot tool      |      /
+   \      |       Keld Norman, feb, 2017         |     /
+   /      |______________________________________|     \
+  /__________)                                (_________\
+EOF
+#-------------------------------------------------------------------------
+# VARIABLES
+#-------------------------------------------------------------------------
+MASSCAN_RATE="500"
+MASSCAN_PORT="80"
+WORKERS=50
+TMP_DIR="/tmp/.masscan"
+INDEX_HTML="${TMP_DIR}/index.html"
+MASSCAN_OUTPUT_FILE="${TMP_DIR}/.masscan.screenshots"
+#-------------------------------------------------------------------------
+# PROGRAMS NEEDED TO DO THE SCAN
+#-------------------------------------------------------------------------
+IPTABLES="/sbin/iptables"
+MASSCAN="/usr/bin/masscan"
+CONVERT="/usr/bin/convert"
+MOGRIFY="/usr/bin/mogrify"
+FIREFOX="/usr/bin/firefox"
+WEBSCROT="/home/user/go/bin/webscrot"
+#-------------------------------------------------------------------------
+# PRE CHECK
+#-------------------------------------------------------------------------
+if [ $# -eq 0 ]; then
+ printf "\n ### ERROR - Missing parameter!\n"
+ printf "\n     Syntax: $0 109.56.0.0/15\n\n"
+ exit 1
+fi
+NET="$1"
+if [ ! -e ${MASSCAN} ]; then
+ printf "\n ### ERROR - ${MASSCAN} not found..(try running apt-get update -y -qq && apt-get install masscan)\n\n"
+ exit 1
+fi
+if [ ! -e ${CONVERT} ]; then
+ printf "\n ### ERROR - ${CONVERT} not found.. (try running apt-get update -y -qq && apt-get install imagemagick)\n\n"
+ exit 1
+fi
+if [ ! -e ${MOGRIFY} ]; then
+ printf "\n ### ERROR - ${MOGRIFY} not found.. (try running apt-get update -y -qq && apt-get install imagemagick)\n\n"
+ exit 1
+fi
+if [ ! -e ${WEBSCROT} ]; then
+ printf "\n ### ERROR - ${WEBSCROT} not found.. (try git clone https://github.com/adnanh/webscrot.git && apt-get install golang && export GOPATH=/home/user/go && go get github.com/adnanh/webscrot)\n\n"
+ exit 1
+fi
+if [ ! -e ${IPTABLES} ]; then
+ printf "\n ### ERROR - ${IPTABLES} not found..(try running apt-get update -y -qq && apt-get install iptables)\n\n"
+ exit 1
+fi
+rm -Rf ${TMP_DIR} > /dev/null 2>&1
+mkdir -p -m 755 ${TMP_DIR} >/dev/null 2>&1
+echo '<!DOCTYPE html>
+<html>
+ <head>
+  <style>
+#thumbwrap { margin:75px auto; width:252px; height:252px; }
+.thumb { float:left; /* must be floated for same cross browser position of larger image */ position:relative; margin:3px; }
+.thumb img { border:1px solid #000; vertical-align:bottom; }
+.thumb:hover { border:0; /* IE6 needs this to show large image */ z-index:1; }
+.thumb span { position:absolute; visibility:hidden; }
+.thumb:hover span { visibility:visible; top:37px; left:37px; }
+  </style>
+ </head>
+ <body bgcolor="#FFFFFF"> 
+ <h1><font color="#ADFF2F"><center>S C R E E N S H O T S</center></font></h1>
+  <br><br><center>Please wait - rebuilding page..<br><br>' > ${INDEX_HTML}
+  echo "$(date)" >> ${INDEX_HTML}
+  echo '</center>
+  </body>
+</html>' >> ${INDEX_HTML}
+echo ""
+#-------------------------------------------------------------------------
+# CREATE THE MASSCAN EXCLUDE LIST
+# GOV, MIL etc that does not like us looing at their port 80 ?!.. :)
+#-------------------------------------------------------------------------
+MASSCAN_EXCLUDE_FILE="${TMP_DIR}/.masscan.exclude"
+echo '
+0.0.0.0/8          # "This" network
+6.0.0.0/8          # Army Information Systems Center
+21.0.0.0/8         # DDN-RVN
+22.0.0.0/8         # Defense Information Systems Agency
+26.0.0.0/8         # Defense Information Systems Agency
+28.0.0.0/8         # DSI-North
+29.0.0.0/8         # Defense Information Systems Agency
+30.0.0.0/8         # Defense Information Systems Agency
+33.0.0.0/8         # DLA Systems Automation Center
+55.0.0.0/8         # DoD Network Information Center
+#10.0.0.0/8         # Private networks
+100.64.0.0/10      # Carrier-grade NAT - RFC 6598
+127.0.0.0/8        # Host loopback
+169.254.0.0/16     # Link local
+#172.16.0.0/12      # Private networks
+192.0.0.0/24       # IETF Protocol Assignments
+192.0.0.0/29       # DS-Lite
+192.0.0.170/32     # NAT64
+192.0.0.171/32     # DNS64
+192.0.2.0/24       # Documentation (TEST-NET-1)
+192.88.99.0/24     # 6to4 Relay Anycast
+192.168.0.0/16     # Private networks
+198.18.0.0/15      # Benchmarking
+198.51.100.0/24    # Documentation (TEST-NET-2)
+203.0.113.0/24     # Documentation (TEST-NET-3)
+240.0.0.0/4        # Reserved
+255.255.255.255/32 # Limited Broadcast
+153.11.0.0/16      # Defense contractor
+4.53.201.0/24      # Just mad people
+5.152.179.0/24
+8.12.162.0-8.12.164.255
+8.14.84.0/22
+8.14.145.0-8.14.147.255
+8.17.250.0-8.17.252.255
+23.27.0.0/16
+23.231.128.0/17
+37.72.172.0/23
+38.72.200.0/22
+50.93.192.0-50.93.197.255
+50.115.128.0/20
+50.117.0.0/17
+50.118.128.0/17
+63.141.222.0/24
+64.62.253.0/24
+64.92.96.0/19
+64.145.79.0/24
+64.145.82.0/23
+64.158.146.0/23
+65.49.24.0/24
+65.49.93.0/24
+65.162.192.0/22
+66.79.160.0/19
+66.160.191.0/24
+68.68.96.0/20
+69.46.64.0/19
+69.176.80.0/20
+72.13.80.0/20
+72.52.76.0/24
+74.82.43.0/24
+74.82.160.0/19
+74.114.88.0/22
+74.115.0.0/24
+74.115.2.0/24
+74.115.4.0/24
+74.122.100.0/22
+75.127.0.0/24
+103.251.91.0/24
+108.171.32.0/24
+108.171.42.0/24
+108.171.52.0/24
+108.171.62.0/24
+118.193.78.0/23
+130.93.16.0/23
+136.0.0.0/16
+142.111.0.0/16
+142.252.0.0/16
+146.82.55.93
+149.54.136.0/21
+149.54.152.0/21
+166.88.0.0/16
+172.252.0.0/16
+173.245.64.0/19
+173.245.194.0/23
+173.245.220.0/22
+173.252.192.0/18
+178.18.16.0/22
+178.18.26.0-178.18.29.255
+183.182.22.0/24
+192.92.114.0/24
+192.155.160.0/19
+192.177.0.0/16
+192.186.0.0/18
+192.249.64.0/20
+192.250.240.0/20
+194.110.214.0/24
+198.12.120.0-198.12.122.255
+198.144.240.0/20
+199.33.120.0/24
+199.33.124.0/22
+199.48.147.0/24
+199.68.196.0/22
+199.127.240.0/21
+199.187.168.0/22
+199.188.238.0/23
+199.255.208.0/24
+203.12.6.0/24
+204.13.64.0/21
+204.16.192.0/21
+204.19.238.0/24
+204.74.208.0/20
+205.159.189.0/24
+205.164.0.0/18
+205.209.128.0/18
+206.108.52.0/23
+206.165.4.0/24
+208.77.40.0/21
+208.80.4.0/22
+208.123.223.0/24
+209.51.185.0/24
+209.54.48.0/20
+209.107.192.0/23
+209.107.210.0/24
+209.107.212.0/24
+211.156.110.0/23
+216.83.33.0-216.83.49.255
+216.83.51.0-216.83.63.255
+216.151.183.0/24
+216.151.190.0/23
+216.172.128.0/19
+216.185.36.0/24
+216.218.233.0/24
+216.224.112.0/20
+194.77.40.242         # Konstantin Agouros
+194.77.40.246         # Konstantin Agouros
+165.160.0.0/16        # Corporation Service Company
+' > ${MASSCAN_EXCLUDE_FILE}
+#-------------------------------------------------------------------------
+# FUNCTIONS
+#-------------------------------------------------------------------------
+function select_scan_adapter {
+ ADAPTERS_COUNT=$(/sbin/ip -4 l show|grep -v lo:|grep -c UP)
+ if [ ${ADAPTERS_COUNT} -eq 1 ]; then
+  MASSCAN_ADAPTER=$(/sbin/ip -4 l show|grep UP|grep -v lo:|cut -d ':' -f2|awk '{print $1}'|head -1)
+ else
+  echo ""
+  PS3="Please select an adapter to use for the scan: "
+  NETCARDS="$(ls -1 /sys/class/net |grep -v ^lo)"
+  select foo in ${NETCARDS}; do
+   if [ "${foo:-empty}" != "empty" ]; then
+    MASSCAN_ADAPTER="$foo"
+    break
+   else
+    echo -e "\033[2A "
+   fi
+  done
+ fi
+}
+#-------------------------------------------------------------------------
+function validate_ip() {
+#-------------------------------------------------------------------------
+ # SCAN IS LOCAL NETWORK OR DEFINDE IN PARAMETER GIVEN
+ GW=$(netstat -arn|grep ^0.0.0.0|awk '{print $2}')
+ WANIF=$(netstat -arn|grep ^0.0.0.0|awk '{print $8}')
+ #
+ local ip="$(echo $NET|cut -d '/' -f 1 2> /dev/null)"
+ local subnet="$(echo $NET|cut -d '/' -f 2 2> /dev/null)"
+ local number='^[0-9]+([.][0-9]+)?$'
+ local stat=1
+ #
+ # TEST IF THE IP IS VALID
+ #
+ if [[ $ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+  OIFS=$IFS
+  IFS='.'
+  ip=($ip)
+  IFS=$OIFS
+  [[ ${ip[0]} -le 255 && ${ip[1]} -le 255 && ${ip[2]} -le 255 && ${ip[3]} -le 255 ]]
+   stat=$?
+ fi
+ #
+ # TEST IF THE SUBNET IS VALID
+ #
+ if [[ ${subnet:-0} =~ $number ]] ; then
+  if [ ${subnet:-0} -eq 0 -o ${subnet:-99} -gt 32 ]; then
+   stat=1
+  fi
+ else
+  grep -E -q '^(254|252|248|240|224|192|128)\.0\.0\.0|255\.(254|252|248|240|224|192|128|0)\.0\.0|255\.255\.(254|252|248|240|224|192|128|0)\.0|255\.255\.255\.(254|252|248|240|224|192|128|0)' <<< "$subnet" || stat=1
+ fi
+ # TEST FOR ERRORS
+ if [ ${stat} -ne 0 ]; then
+  printf "\n ### ERROR - Network to scan (${NET}) is not valid!\n\n"
+  exit 1
+ fi
+}
+#-------------------------------------------------------------------------
+function screenshots {
+#-------------------------------------------------------------------------
+ printf "\nProcessing results and taking screenshots of the websites..\n"
+ echo '--------------------------------------------------------------------'
+ if [ ${FOUND:-0} -eq 0 ]; then 
+  printf "\n ### INFO - Nothing found to screenshot - exiting!\n\n"
+  exit 1
+ else
+  if [ ${FOUND} -lt ${WORKERS} ]; then 
+   WORKERS=${FOUND}
+  fi
+ fi
+ for IP in $(cat ${MASSCAN_OUTPUT_FILE}|grep ^Host|grep open|awk '{print $2}'|sort -V); do 
+  echo "http://${IP}" >> ${TMP_DIR}/.masscan.ip
+ done
+ ${WEBSCROT} -delay 5000 -json=false -file=${TMP_DIR}/.masscan.ip -output-path=${TMP_DIR} -workers=${WORKERS} 
+ printf "Creating gallerypage..\n"
+ echo '<!DOCTYPE html>
+<html>
+ <head>
+  <style>
+#thumbwrap { margin:75px auto; width:252px; height:252px; }
+.thumb { float:left; /* must be floated for same cross browser position of larger image */ position:relative; margin:3px; }
+.thumb img { border:1px solid #000; vertical-align:bottom; }
+.thumb:hover { border:0; /* IE6 needs this to show large image */ z-index:1; }
+.thumb span { position:absolute; visibility:hidden; }
+.thumb:hover span { visibility:visible; top:37px; left:37px; }
+  </style>
+ </head>
+ <body bgcolor="#40404"> 
+ <h1><font color="#ADFF2F"><center>S C R E E N S H O T S</center></font></h1>' > ${INDEX_HTML}
+   cd ${TMP_DIR}
+   for IMG in $(ls *.png) ; do
+    LINK="$(echo ${IMG%%.png}|tr '-' '.'|sed -e 's/http.//')"
+    ${CONVERT} -scale 240 ${IMG} thumb-${IMG} && ${MOGRIFY} -scale 640 ${IMG} && echo "<a class='thumb' href='http://${LINK}' target='_blank'><img src='thumb-${IMG}' alt=''><span><img src='${IMG}' alt=''></span></a>" >> ${INDEX_HTML}
+   done
+ echo '  </body>
+</html>' >> ${INDEX_HTML}
+}
+#-------------------------------------------------------------------------
+function scan {
+#-------------------------------------------------------------------------
+ MASSCAN_WAIT="10"
+ MASSCAN_USER_AGENT="Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; FSL 7.0.6.01001)"
+ MASSSCAN_SOURCE_PORT=0
+ #printf " ### INFO - Finding a free source port to scan from..: "
+ while [ ${MASSSCAN_SOURCE_PORT} -eq 0 ] || [ ${MASSSCAN_SOURCE_PORT} -eq ${MASSCAN_PORT} ]; do
+  MASSSCAN_SOURCE_PORT=$(($RANDOM%20000+40000))
+ done
+ # echo "${MASSSCAN_SOURCE_PORT}"
+ #-------------------------------------------------------------------------
+ #  ENSURE NO KILLED CONNECTIONS
+ #-------------------------------------------------------------------------
+ # Masscan can do more than just detect whether ports are open.
+ # It can also complete the TCP connection and interaction with the application at that port in order to grab simple "banner" information.
+ # The problem with this is that masscan contains its own TCP/IP stack separate from the system you run it on. 
+ # When the local system receives a SYN-ACK from the probed target, it responds with a RST packet that kills the connection i#
+ # before masscan can grab the banner.
+ # you can firewall the port that masscan uses. This prevents the local TCP/IP stack from seeing the packet, 
+ # but masscan still sees it since it bypasses the local stack. For Linux, this would look like:
+ #-------------------------------------------------------------------------
+ # Add the rule if it does not exist already
+ if ! ${IPTABLES} -C INPUT -p tcp --dport ${MASSSCAN_SOURCE_PORT} -j DROP 2> /dev/null ; then
+  ${IPTABLES} -A INPUT -p tcp --dport ${MASSSCAN_SOURCE_PORT} -j DROP
+  #printf " ### INFO - Blocking incomming port ${MASSSCAN_SOURCE_PORT} with iptables.\n"
+ fi
+ #-----------------------------------------------------------
+ printf "\nScanning the network: ${NET} Ports: ${MASSCAN_PORT:-error} Rate: ${MASSCAN_RATE}\n"
+ echo '--------------------------------------------------------------------'
+ MASSCAN_OUTPUT_FILE="/tmp/.masscan.results"
+ ${MASSCAN} ${NET} --adapter ${MASSCAN_ADAPTER}              \
+                   --ports ${MASSCAN_PORT}                   \
+                   --wait ${MASSCAN_WAIT}                    \
+                   --excludefile ${MASSCAN_EXCLUDE_FILE}     \
+                   --http-user-agent "${MASSCAN_USER_AGENT}" \
+                   --open-only                               \
+                   --adapter-port ${MASSSCAN_SOURCE_PORT}    \
+                   --rate ${MASSCAN_RATE}                    \
+                   -oG ${MASSCAN_OUTPUT_FILE} |egrep -v -e "${MASSCAN_EXCLUDE_FILE}|forced options"
+ FOUND=$(cat ${MASSCAN_OUTPUT_FILE}|grep -v ^#|grep "open"|grep -c "^Host")
+ echo ""
+ echo "Found: ${FOUND} IP(s) with open port(s)."
+}
+#-------------------------------------------------------------------------
+# MAIN
+#-------------------------------------------------------------------------
+select_scan_adapter
+validate_ip
+scan
+screenshots
+#-------------------------------------------------------------------------
+${FIREFOX} ${INDEX_HTML} >/dev/null 2>&1 &
+#-------------------------------------------------------------------------
+printf "Done\n\n"
