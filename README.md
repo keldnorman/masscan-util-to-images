@@ -28,7 +28,9 @@ ln -s /path/to/webshots/webshots.js $HOME/bin
 Alter the WEBSHOTS variable in the script to point to your webshot location
 
 # RUN
+
 chmod +x ./scan-and-screenshot*
+
 ./scan-and-screenshot 10.0.0.0/24
 
 ./scan-and-screenshot 172.16.0.0/16
