@@ -46,7 +46,7 @@ WEBSHOTS="/root/bin/webshots"
 #-------------------------------------------------------------------------
 if [ $# -eq 0 ]; then
  printf "\n ### ERROR - Missing parameter!\n"
- printf "\n     Syntax: $0 109.56.0.0/15\n\n"
+ printf "\n     Syntax: $0 ?.?.?.?/15\n\n"
  exit 1
 fi
 NET="$1"
