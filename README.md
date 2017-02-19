@@ -12,7 +12,7 @@ apt-get install ratpoison xvfb masscan imagemaigck golang morgrify iptables
  
 export GOPATH=/home/[YOUR USER]/go && go get github.com/adnanh/webscrot
  
-Alter the WEBSCROT variable below to your user directory
+Alter the WEBSCROT variable in the script to match your user directory
 
 INSTALL PRE REQ. FOR:
 # scan-and-screenshot-extra
