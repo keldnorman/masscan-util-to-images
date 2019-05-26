@@ -27,6 +27,8 @@ ln -s /path/to/webshots/webshots.js $HOME/bin
 
 Alter the WEBSHOTS variable in the script to point to your webshot location
 
+Also you need to instwall "midori" (thanks for that info to tl87 commented on 11 Aug 2018)
+
 # RUN
 
 chmod +x ./scan-and-screenshot*
